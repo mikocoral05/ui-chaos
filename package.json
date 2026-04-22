@@ -1,0 +1,55 @@
+{
+  "name": "ui-chaos",
+  "version": "1.0.0",
+  "description": "Chaos engineering for frontend apps. Randomly attack your staging UI and export repro tests when it breaks.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "browser": "./dist/index.js",
+  "unpkg": "./dist/ui-chaos.umd.js",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "test": "vitest run --config vitest.config.mjs",
+    "check": "npm run test && npm run build",
+    "prepublishOnly": "npm run check"
+  },
+  "keywords": [
+    "chaos",
+    "chaos-engineering",
+    "testing",
+    "monkey",
+    "playwright",
+    "cypress",
+    "frontend",
+    "qa",
+    "staging"
+  ],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

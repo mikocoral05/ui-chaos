@@ -1,0 +1,1 @@
+{"version":3,"file":"network-recorder.d.ts","sourceRoot":"","sources":["../src/network-recorder.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,oBAAoB,EAAE,MAAM,YAAY,CAAC;AAEvD,qBAAa,eAAe;IAGd,OAAO,CAAC,QAAQ,CAAC,OAAO;IAFpC,OAAO,CAAC,MAAM,CAA8B;gBAEf,OAAO,GAAE,MAAW;IAEjD,MAAM,CAAC,KAAK,EAAE,oBAAoB;IAOlC,UAAU,IAAI,oBAAoB,EAAE;IAIpC,KAAK;CAGN"}

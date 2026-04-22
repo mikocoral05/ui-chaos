@@ -1,0 +1,899 @@
+//#region src/crash-detector.ts
+var e = class {
+	observer = null;
+	started = !1;
+	didTargetEverHaveContent;
+	constructor(e) {
+		this.options = e, this.didTargetEverHaveContent = this.hasMeaningfulContent(e.target);
+	}
+	start() {
+		this.started || (this.started = !0, window.addEventListener("error", this.handleError), window.addEventListener("unhandledrejection", this.handleRejection), this.observer = new MutationObserver(() => {
+			this.evaluateTargetState();
+		}), this.observer.observe(document.body, {
+			childList: !0,
+			subtree: !0
+		}));
+	}
+	stop() {
+		this.started && (this.started = !1, window.removeEventListener("error", this.handleError), window.removeEventListener("unhandledrejection", this.handleRejection), this.observer &&= (this.observer.disconnect(), null));
+	}
+	handleError = (e) => {
+		let t = e.message || "Unhandled window error";
+		this.options.onCrash({
+			kind: "error",
+			reason: t,
+			timestamp: Date.now()
+		});
+	};
+	handleRejection = (e) => {
+		let t = e.reason instanceof Error ? e.reason.message : String(e.reason);
+		this.options.onCrash({
+			kind: "unhandledrejection",
+			reason: t,
+			timestamp: Date.now()
+		});
+	};
+	evaluateTargetState() {
+		let e = this.options.target;
+		if (this.hasMeaningfulContent(e) && (this.didTargetEverHaveContent = !0), this.options.detectTargetRemoval && !document.body.contains(e)) {
+			this.options.onCrash({
+				kind: "target-removed",
+				reason: "Target element was removed from the document.",
+				timestamp: Date.now()
+			});
+			return;
+		}
+		this.options.detectEmptyTarget && this.didTargetEverHaveContent && !this.hasMeaningfulContent(e) && this.options.onCrash({
+			kind: "empty-target",
+			reason: "Target element became empty after previously rendering content.",
+			timestamp: Date.now()
+		});
+	}
+	hasMeaningfulContent(e) {
+		return e.childElementCount > 0 ? !0 : !!e.textContent?.trim();
+	}
+}, t = "http://localhost:3000/", n = "ui-chaos reproduced crash scenario";
+function r(e, t = {}) {
+	let r = c(e, t), i = [], a = !!r.crash;
+	i.push("import { test } from '@playwright/test';"), i.push(""), i.push(`test(${h(t.testName ?? n)}, async ({ page }) => {`), i.push("  const pageErrors: string[] = [];"), i.push("  page.on('pageerror', (error) => {"), i.push("    pageErrors.push(error.message);"), i.push("  });"), i.push(""), typeof r.seed == "number" && (i.push(`  // Scenario seed: ${r.seed}`), i.push("")), i.push(...d(r.network)), i.push(`  await page.goto(${h(r.url)});`), i.push(""), r.crash && (i.push(`  // Captured crash reason: ${r.crash.kind} - ${r.crash.reason}`), i.push(""));
+	for (let e of r.actions) i.push(`  // Action ${e.id} at ${new Date(e.timestamp).toISOString()}`), i.push(l(e));
+	return a ? (i.push(""), i.push("  if (pageErrors.length > 0) {"), i.push("    throw new Error(`Replayed crash scenario produced page errors:\\n${pageErrors.join('\\n')}`);"), i.push("  }")) : (i.push(""), i.push("  // No crash was captured for this scenario. Add your own assertions here if needed.")), i.push("});"), i.push(""), i.join("\n");
+}
+function i(e, t = {}) {
+	let r = c(e, t), i = [];
+	i.push(`describe(${h(t.testName ?? n)}, () => {`), i.push("  it('replays the captured UI actions', () => {"), typeof r.seed == "number" && (i.push(`    // Scenario seed: ${r.seed}`), i.push("")), i.push(...f(r.network)), i.push(`    cy.visit(${h(r.url)});`), i.push(""), r.crash && (i.push(`    // Captured crash reason: ${r.crash.kind} - ${r.crash.reason}`), i.push(""));
+	for (let e of r.actions) i.push(`    // Action ${e.id} at ${new Date(e.timestamp).toISOString()}`), i.push(u(e));
+	return i.push("  });"), i.push("});"), i.push(""), i.join("\n");
+}
+function a(e, t = "both") {
+	return t === "playwright" ? { playwright: r(e) } : t === "cypress" ? { cypress: i(e) } : {
+		playwright: r(e),
+		cypress: i(e)
+	};
+}
+function o(e, t) {
+	if (!g()) return !1;
+	let n = new Blob([e], { type: "text/plain;charset=utf-8" }), r = URL.createObjectURL(n), i = document.createElement("a");
+	return i.href = r, i.download = t, i.style.display = "none", document.body.appendChild(i), i.click(), document.body.removeChild(i), URL.revokeObjectURL(r), !0;
+}
+function s(e, t = {}) {
+	let n = p(t.baseFileName ?? "ui-chaos-crash"), r = [];
+	e.playwright && r.push({
+		content: e.playwright,
+		filename: `${n}.spec.ts`
+	}), e.cypress && r.push({
+		content: e.cypress,
+		filename: `${n}.cy.ts`
+	});
+	let i = [];
+	for (let e of r) o(e.content, e.filename) && i.push(e.filename);
+	return i;
+}
+function c(e, t) {
+	if (Array.isArray(e)) {
+		let n = e[0]?.timestamp ?? Date.now(), r = e[e.length - 1]?.timestamp ?? n;
+		return {
+			url: t.url ?? m(),
+			startedAt: n,
+			endedAt: r,
+			actions: [...e],
+			network: []
+		};
+	}
+	return {
+		...e,
+		url: t.url ?? e.url ?? m(),
+		actions: [...e.actions],
+		network: [...e.network]
+	};
+}
+function l(e) {
+	let t = h(e.selector);
+	switch (e.type) {
+		case "click": return `  await page.locator(${t}).click();`;
+		case "dblclick": return `  await page.locator(${t}).dblclick();`;
+		case "type": return `  await page.locator(${t}).fill(${h(e.value ?? "")});`;
+		case "select": return `  await page.locator(${t}).selectOption(${h(e.optionValue ?? "")});`;
+		case "scroll": return `  await page.locator(${t}).evaluate((element, top) => { element.scrollTop = top; }, ${e.scrollTop ?? 0});`;
+		default: return `  // Unsupported action type: ${e.type}`;
+	}
+}
+function u(e) {
+	let t = h(e.selector);
+	switch (e.type) {
+		case "click": return `    cy.get(${t}).click();`;
+		case "dblclick": return `    cy.get(${t}).dblclick();`;
+		case "type": return `    cy.get(${t}).clear().type(${h(e.value ?? "")}, { parseSpecialCharSequences: false });`;
+		case "select": return `    cy.get(${t}).select(${h(e.optionValue ?? "")});`;
+		case "scroll": return `    cy.get(${t}).scrollTo(0, ${e.scrollTop ?? 0});`;
+		default: return `    // Unsupported action type: ${e.type}`;
+	}
+}
+function d(e) {
+	if (e.length === 0) return [];
+	let t = [];
+	return t.push(`  const networkChaos = ${JSON.stringify(e)};`), t.push("  await page.route('**/*', async (route) => {"), t.push("    const request = route.request();"), t.push("    const index = networkChaos.findIndex((entry) => !entry.used && entry.url === request.url() && entry.method === request.method());"), t.push("    if (index === -1) {"), t.push("      await route.continue();"), t.push("      return;"), t.push("    }"), t.push(""), t.push("    const entry = networkChaos[index];"), t.push("    entry.used = true;"), t.push(""), t.push("    if (entry.delayMs > 0) {"), t.push("      await new Promise((resolve) => setTimeout(resolve, entry.delayMs));"), t.push("    }"), t.push(""), t.push("    if (entry.failureMode === 'network-error') {"), t.push("      await route.abort('failed');"), t.push("      return;"), t.push("    }"), t.push(""), t.push("    if (entry.failureMode === 'http-error') {"), t.push("      await route.fulfill({"), t.push("        status: entry.statusCode ?? 503,"), t.push("        contentType: 'application/json',"), t.push("        body: JSON.stringify({ error: 'Injected by ui-chaos', url: entry.url, method: entry.method })"), t.push("      });"), t.push("      return;"), t.push("    }"), t.push(""), t.push("    await route.continue();"), t.push("  });"), t.push(""), t;
+}
+function f(e) {
+	if (e.length === 0) return [];
+	let t = [];
+	return t.push(`    const networkChaos = ${JSON.stringify(e)};`), t.push("    networkChaos.forEach((entry) => {"), t.push("      cy.intercept({ method: entry.method, url: entry.url, times: 1 }, (req) => {"), t.push("        if (entry.failureMode === 'network-error') {"), t.push("          req.reply({ forceNetworkError: true, delay: entry.delayMs });"), t.push("          return;"), t.push("        }"), t.push(""), t.push("        if (entry.failureMode === 'http-error') {"), t.push("          req.reply({"), t.push("            statusCode: entry.statusCode ?? 503,"), t.push("            delay: entry.delayMs,"), t.push("            headers: { 'x-ui-chaos': 'true' },"), t.push("            body: { error: 'Injected by ui-chaos', url: entry.url, method: entry.method }"), t.push("          });"), t.push("          return;"), t.push("        }"), t.push(""), t.push("        req.continue((res) => {"), t.push("          if (entry.delayMs > 0) {"), t.push("            res.setDelay(entry.delayMs);"), t.push("          }"), t.push("        });"), t.push("      });"), t.push("    });"), t.push(""), t;
+}
+function p(e) {
+	return e.replace(/(\.spec\.ts|\.cy\.ts|\.ts)$/i, "");
+}
+function m() {
+	return typeof window < "u" && window.location?.href ? window.location.href : t;
+}
+function h(e) {
+	return JSON.stringify(e);
+}
+function g() {
+	return typeof window < "u" && typeof document < "u";
+}
+//#endregion
+//#region src/monkey.ts
+var _ = "button, input, select, textarea, a[href], [role=\"button\"], [tabindex]:not([tabindex=\"-1\"])", v = "[data-chaos-ignore], [data-ui-chaos-ignore]", y = 6, b = class {
+	intervalId = null;
+	actionCounter = 0;
+	constructor(e, t, n, r) {
+		this.target = e, this.intervalMs = t, this.recorder = n, this.options = r;
+	}
+	get isRunning() {
+		return this.intervalId !== null;
+	}
+	start() {
+		return this.intervalId === null ? (this.intervalId = window.setInterval(() => {
+			this.runOnce();
+		}, this.intervalMs), this.log("Monkey started."), !0) : !1;
+	}
+	stop() {
+		this.intervalId !== null && (window.clearInterval(this.intervalId), this.intervalId = null, this.log("Monkey stopped."));
+	}
+	runOnce() {
+		let e = this.getInteractables();
+		if (e.length === 0) return null;
+		let t = e[this.randomIndex(e.length)], n = this.pickActionType(t), r = this.buildAction(t, n);
+		try {
+			return this.performAction(t, r), this.recorder.record(r), r;
+		} catch {
+			return null;
+		}
+	}
+	getInteractables() {
+		return Array.from(this.target.querySelectorAll(this.options.interactionSelector)).filter((e) => this.isEligibleElement(e));
+	}
+	isEligibleElement(e) {
+		if (!e || !e.isConnected || typeof e.matches == "function" && this.options.excludeSelector && e.matches(this.options.excludeSelector) || this.readBooleanProperty(e, "disabled") || e.getAttribute("aria-disabled") === "true") return !1;
+		let t = this.readStringProperty(e, "type").toLowerCase();
+		if (t === "hidden" || t && t !== "checkbox" && t !== "radio" && this.readBooleanProperty(e, "readOnly")) return !1;
+		let n = typeof window.getComputedStyle == "function" ? window.getComputedStyle(e) : null;
+		if (n && (n.display === "none" || n.visibility === "hidden" || n.pointerEvents === "none")) return !1;
+		if (typeof e.getBoundingClientRect == "function") {
+			let t = e.getBoundingClientRect();
+			if (t.width <= 0 || t.height <= 0) return !1;
+		}
+		return !0;
+	}
+	pickActionType(e) {
+		let t = ["click", "dblclick"], n = e.tagName.toLowerCase();
+		return this.isTextLikeInput(e) && t.push("type"), n === "select" && this.hasSelectableOptions(e) && t.push("select"), this.isScrollable(e) && t.push("scroll"), t[this.randomIndex(t.length)];
+	}
+	buildAction(e, t) {
+		let n = this.getElementCenter(e), r = e.tagName.toLowerCase(), i = {
+			id: ++this.actionCounter,
+			type: t,
+			selector: this.generateSelector(e),
+			timestamp: Date.now(),
+			tagName: r,
+			text: this.readElementText(e),
+			x: n?.x,
+			y: n?.y
+		};
+		return t === "type" && (i.value = this.generateInputValue(e)), t === "select" && (i.optionValue = this.pickOptionValue(e)), t === "scroll" && (i.scrollTop = this.pickScrollTop(e)), i;
+	}
+	performAction(e, t) {
+		switch (t.type) {
+			case "click":
+				typeof e.click == "function" ? e.click() : e.dispatchEvent(new MouseEvent("click", {
+					bubbles: !0,
+					cancelable: !0
+				}));
+				break;
+			case "dblclick":
+				e.dispatchEvent(new MouseEvent("dblclick", {
+					bubbles: !0,
+					cancelable: !0
+				}));
+				break;
+			case "type":
+				this.applyInputValue(e, t.value ?? "");
+				break;
+			case "select":
+				this.applySelectValue(e, t.optionValue ?? "");
+				break;
+			case "scroll":
+				this.applyScroll(e, t.scrollTop ?? 0);
+				break;
+			default: break;
+		}
+	}
+	applyInputValue(e, t) {
+		this.writeProperty(e, "value", t), e.dispatchEvent(new Event("input", { bubbles: !0 })), e.dispatchEvent(new Event("change", { bubbles: !0 }));
+	}
+	applySelectValue(e, t) {
+		this.writeProperty(e, "value", t), e.dispatchEvent(new Event("input", { bubbles: !0 })), e.dispatchEvent(new Event("change", { bubbles: !0 }));
+	}
+	applyScroll(e, t) {
+		this.writeProperty(e, "scrollTop", t), e.dispatchEvent(new Event("scroll", { bubbles: !0 }));
+	}
+	isTextLikeInput(e) {
+		let t = e.tagName.toLowerCase();
+		if (t === "textarea") return !0;
+		if (t !== "input") return !1;
+		let n = this.readStringProperty(e, "type").toLowerCase();
+		return n === "" || n === "text" || n === "search" || n === "email" || n === "password" || n === "tel" || n === "url" || n === "number";
+	}
+	hasSelectableOptions(e) {
+		return this.readArrayProperty(e, "options").some((e) => !e?.disabled && typeof e?.value == "string");
+	}
+	pickOptionValue(e) {
+		let t = this.readArrayProperty(e, "options").filter((e) => !e?.disabled && typeof e?.value == "string");
+		return t.length === 0 ? "" : t[this.randomIndex(t.length)]?.value ?? "";
+	}
+	isScrollable(e) {
+		let t = this.readNumberProperty(e, "scrollHeight"), n = this.readNumberProperty(e, "clientHeight");
+		return t > n && n > 0;
+	}
+	pickScrollTop(e) {
+		let t = this.readNumberProperty(e, "scrollHeight"), n = this.readNumberProperty(e, "clientHeight"), r = Math.max(0, t - n);
+		return r === 0 ? 0 : Math.floor(this.options.random.next() * (r + 1));
+	}
+	generateInputValue(e) {
+		let t = this.readStringProperty(e, "type").toLowerCase();
+		return t === "number" ? String(Math.floor(this.options.random.next() * 1e4)) : t === "email" ? `chaos-${Math.floor(this.options.random.next() * 1e4)}@example.test` : t === "tel" ? `${Math.floor(1e8 + this.options.random.next() * 9e8)}` : t === "url" ? `https://chaos.test/${Math.floor(this.options.random.next() * 1e4)}` : Array.from({ length: y }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[this.randomIndex(36)]).join("");
+	}
+	generateSelector(e) {
+		let t = this.getStableSelector(e);
+		if (t) return t;
+		let n = [], r = e;
+		for (; r && r.nodeType === Node.ELEMENT_NODE;) {
+			let e = this.getStableSelector(r);
+			if (e) {
+				n.unshift(e);
+				break;
+			}
+			let t = r.tagName.toLowerCase(), i = r.previousElementSibling, a = 1;
+			for (; i;) i.tagName.toLowerCase() === t && (a += 1), i = i.previousElementSibling;
+			if (t += `:nth-of-type(${a})`, n.unshift(t), r = r.parentElement, r === this.target.parentElement) break;
+		}
+		return n.join(" > ") || e.tagName.toLowerCase();
+	}
+	getStableSelector(e) {
+		if (e.id) return `#${this.escapeCssIdentifier(e.id)}`;
+		let t = e.getAttribute("data-testid");
+		if (t) return `[data-testid="${this.escapeCssAttribute(t)}"]`;
+		let n = e.getAttribute("name");
+		if (n) return `${e.tagName.toLowerCase()}[name="${this.escapeCssAttribute(n)}"]`;
+		let r = e.getAttribute("aria-label");
+		return r ? `${e.tagName.toLowerCase()}[aria-label="${this.escapeCssAttribute(r)}"]` : null;
+	}
+	escapeCssIdentifier(e) {
+		return typeof CSS < "u" && typeof CSS.escape == "function" ? CSS.escape(e) : e.replace(/[^a-zA-Z0-9_-]/g, (e) => `\\${e}`);
+	}
+	escapeCssAttribute(e) {
+		return e.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+	}
+	getElementCenter(e) {
+		if (typeof e.getBoundingClientRect != "function") return null;
+		let t = e.getBoundingClientRect();
+		return {
+			x: t.left + t.width / 2,
+			y: t.top + t.height / 2
+		};
+	}
+	readElementText(e) {
+		return (typeof e.textContent == "string" ? e.textContent.trim() : "") || void 0;
+	}
+	randomIndex(e) {
+		return Math.floor(this.options.random.next() * e);
+	}
+	log(e) {
+		this.options.log && console.log(`[ui-chaos] ${e}`);
+	}
+	readBooleanProperty(e, t) {
+		return !!e[t];
+	}
+	readStringProperty(e, t) {
+		let n = e[t];
+		return typeof n == "string" ? n : "";
+	}
+	readNumberProperty(e, t) {
+		let n = e[t];
+		return typeof n == "number" ? n : 0;
+	}
+	readArrayProperty(e, t) {
+		let n = e[t];
+		return n ? Array.from(n) : [];
+	}
+	writeProperty(e, t, n) {
+		e[t] = n;
+	}
+}, x = [
+	500,
+	502,
+	503,
+	504
+], S = class {
+	active = !1;
+	nextEventId = 0;
+	fetchInstalled = !1;
+	xhrInstalled = !1;
+	originalFetch;
+	originalXhr;
+	constructor(e) {
+		this.options = e, this.originalFetch = this.options.config.interceptFetch && typeof window.fetch == "function" ? window.fetch : null, this.originalXhr = this.options.config.interceptXhr && typeof window.XMLHttpRequest == "function" ? window.XMLHttpRequest : null, this.install();
+	}
+	get isEnabled() {
+		return this.options.config.enabled;
+	}
+	get isRunning() {
+		return this.active;
+	}
+	start() {
+		return !this.isEnabled || this.active ? !1 : (this.active = !0, this.log("Network chaos started."), !0);
+	}
+	stop() {
+		this.active && (this.active = !1, this.log("Network chaos stopped."));
+	}
+	destroy() {
+		this.stop(), this.restore();
+	}
+	getHistory() {
+		return this.options.recorder.getHistory();
+	}
+	install() {
+		if (this.originalFetch && !this.fetchInstalled) {
+			let e = async (e, t) => this.handleFetch(e, t);
+			window.fetch = e, globalThis.fetch = e, this.fetchInstalled = !0;
+		}
+		if (this.originalXhr && !this.xhrInstalled) {
+			let e = this, t = this.originalXhr;
+			function n() {
+				return new C(e, t);
+			}
+			let r = n;
+			Object.assign(r, {
+				UNSENT: 0,
+				OPENED: 1,
+				HEADERS_RECEIVED: 2,
+				LOADING: 3,
+				DONE: 4
+			}), window.XMLHttpRequest = r, globalThis.XMLHttpRequest = r, this.xhrInstalled = !0;
+		}
+	}
+	restore() {
+		this.fetchInstalled && this.originalFetch && (window.fetch = this.originalFetch, globalThis.fetch = this.originalFetch, this.fetchInstalled = !1), this.xhrInstalled && this.originalXhr && (window.XMLHttpRequest = this.originalXhr, globalThis.XMLHttpRequest = this.originalXhr, this.xhrInstalled = !1);
+	}
+	async handleFetch(e, t) {
+		if (!this.originalFetch) throw Error("[ui-chaos] fetch is unavailable in this runtime.");
+		if (!this.active) return this.originalFetch(e, t);
+		let n = T(e, t), r = this.planRequest(n.url, n.method, "fetch");
+		if (!r) return this.originalFetch(e, t);
+		if (r.event.delayMs > 0 && await L(r.event.delayMs), r.event.failureMode === "network-error") throw TypeError(`[ui-chaos] Injected network error for ${r.event.method} ${r.event.url}`);
+		return r.event.failureMode === "http-error" ? E(r.event) : this.originalFetch(e, t);
+	}
+	planRequest(e, t, n) {
+		if (!this.active) return null;
+		let r = t.toUpperCase();
+		if (!D(r, this.options.config.methods) || !O(e, this.options.config.includeUrls, this.options.config.excludeUrls)) return null;
+		let i = M(this.options.random, this.options.config.minDelayMs, this.options.config.maxDelayMs), a = this.options.config.failureRate > 0 && this.options.random.next() < this.options.config.failureRate ? A(this.options.random, this.options.config.failureMode) : void 0;
+		if (i <= 0 && !a) return null;
+		let o = a === "http-error" ? j(this.options.random, this.options.config.statusCodes) : void 0, s = {
+			id: ++this.nextEventId,
+			timestamp: Date.now(),
+			transport: n,
+			url: e,
+			method: r,
+			delayMs: i,
+			failureMode: a,
+			statusCode: o
+		};
+		return this.options.recorder.record(s), this.log(`Network chaos injected for ${n.toUpperCase()} ${r} ${e}${i > 0 ? ` with ${i}ms delay` : ""}${a ? ` and ${a}` : ""}.`), { event: s };
+	}
+	log(e) {
+		this.options.log && console.log(`[ui-chaos] ${e}`);
+	}
+}, C = class e {
+	static UNSENT = 0;
+	static OPENED = 1;
+	static HEADERS_RECEIVED = 2;
+	static LOADING = 3;
+	static DONE = 4;
+	upload = null;
+	onreadystatechange = null;
+	onload = null;
+	onerror = null;
+	onabort = null;
+	ontimeout = null;
+	onloadend = null;
+	onloadstart = null;
+	onprogress = null;
+	readyState = e.UNSENT;
+	response = null;
+	responseText = "";
+	responseType = "";
+	responseURL = "";
+	responseXML = null;
+	status = 0;
+	statusText = "";
+	timeout = 0;
+	withCredentials = !1;
+	nativeXhr = null;
+	openArgs = null;
+	listeners = /* @__PURE__ */ new Map();
+	requestHeaders = /* @__PURE__ */ new Map();
+	responseHeaders = /* @__PURE__ */ new Map();
+	aborted = !1;
+	constructor(e, t) {
+		this.manager = e, this.NativeXhr = t;
+	}
+	open(t, n, r, i, a) {
+		this.openArgs = [
+			t,
+			n,
+			r,
+			i,
+			a
+		], this.readyState = e.OPENED, this.responseURL = P(n), this.dispatchLocalEvent("readystatechange");
+	}
+	setRequestHeader(e, t) {
+		this.requestHeaders.set(e, t), this.nativeXhr?.setRequestHeader(e, t);
+	}
+	send(e) {
+		let [t, n] = this.openArgs ?? [
+			"GET",
+			"",
+			!0,
+			void 0,
+			void 0
+		], r = P(n), i = this.manager.planRequest(r, t, "xhr");
+		if (!i) {
+			this.performNativeSend(e);
+			return;
+		}
+		L(i.event.delayMs).then(() => {
+			if (!this.aborted) {
+				if (i.event.failureMode === "network-error") {
+					this.simulateNetworkError();
+					return;
+				}
+				if (i.event.failureMode === "http-error") {
+					this.simulateHttpError(i.event.statusCode ?? 503);
+					return;
+				}
+				this.performNativeSend(e);
+			}
+		});
+	}
+	abort() {
+		this.aborted = !0, this.nativeXhr?.abort(), this.dispatchLocalEvent("abort"), this.dispatchLocalEvent("loadend");
+	}
+	addEventListener(e, t) {
+		this.listeners.has(e) || this.listeners.set(e, /* @__PURE__ */ new Set()), this.listeners.get(e)?.add(t);
+	}
+	removeEventListener(e, t) {
+		this.listeners.get(e)?.delete(t);
+	}
+	dispatchEvent(e) {
+		return this.dispatchLocalEvent(e.type, e), !0;
+	}
+	getAllResponseHeaders() {
+		return this.nativeXhr ? this.nativeXhr.getAllResponseHeaders() : Array.from(this.responseHeaders.entries()).map(([e, t]) => `${e}: ${t}`).join("\r\n");
+	}
+	getResponseHeader(e) {
+		return this.nativeXhr ? this.nativeXhr.getResponseHeader(e) : this.responseHeaders.get(e.toLowerCase()) ?? null;
+	}
+	overrideMimeType(e) {
+		this.nativeXhr?.overrideMimeType(e);
+	}
+	performNativeSend(e) {
+		let [t, n, r, i, a] = this.openArgs ?? [
+			"GET",
+			"",
+			!0,
+			void 0,
+			void 0
+		], o = new this.NativeXhr();
+		this.nativeXhr = o, o.responseType = this.responseType, o.timeout = this.timeout, o.withCredentials = this.withCredentials, w(this, o), o.open(t, n, r ?? !0, i, a);
+		for (let [e, t] of this.requestHeaders.entries()) o.setRequestHeader(e, t);
+		o.send(e ?? null);
+	}
+	simulateNetworkError() {
+		this.readyState = e.DONE, this.status = 0, this.statusText = "", this.response = null, this.responseText = "", this.dispatchLocalEvent("readystatechange"), this.dispatchLocalEvent("error"), this.dispatchLocalEvent("loadend");
+	}
+	simulateHttpError(t) {
+		let n = {
+			error: "Injected by ui-chaos",
+			url: this.responseURL,
+			status: t
+		};
+		this.readyState = e.DONE, this.status = t, this.statusText = `Injected ${t}`, this.responseHeaders.set("content-type", "application/json"), this.responseHeaders.set("x-ui-chaos", "true"), this.responseText = JSON.stringify(n), this.response = this.responseType === "json" ? n : this.responseType === "" || this.responseType === "text" ? this.responseText : null, this.dispatchLocalEvent("readystatechange"), this.dispatchLocalEvent("load"), this.dispatchLocalEvent("loadend");
+	}
+	dispatchLocalEvent(e, t) {
+		let n = t ?? F(e), r = this.listeners.get(e);
+		for (let e of r ?? []) e.call(this, n);
+		let i = this.getHandler(e);
+		typeof i == "function" && i.call(this, n);
+	}
+	getHandler(e) {
+		let t = `on${e}`;
+		return this[t];
+	}
+	syncFromNative(e) {
+		this.readyState = e.readyState, this.response = e.response, this.responseType = e.responseType, this.responseURL = e.responseURL, this.status = e.status, this.statusText = e.statusText, this.timeout = e.timeout, this.withCredentials = e.withCredentials;
+		try {
+			this.responseText = e.responseText;
+		} catch {
+			this.responseText = "";
+		}
+	}
+};
+function w(e, t) {
+	for (let n of [
+		"readystatechange",
+		"loadstart",
+		"progress",
+		"abort",
+		"error",
+		"load",
+		"timeout",
+		"loadend"
+	]) t.addEventListener(n, (n) => {
+		e.syncFromNative(t), e.dispatchEvent(n);
+	});
+}
+function T(e, t) {
+	if (typeof e == "string" || e instanceof URL) return {
+		url: P(String(e)),
+		method: N(I(t, "method") ?? "GET")
+	};
+	if (e && typeof e == "object") {
+		let n = I(e, "url") ?? "", r = I(t, "method") ?? I(e, "method") ?? "GET";
+		return {
+			url: P(String(n)),
+			method: N(String(r))
+		};
+	}
+	return {
+		url: P(""),
+		method: "GET"
+	};
+}
+function E(e) {
+	let t = JSON.stringify({
+		error: "Injected by ui-chaos",
+		url: e.url,
+		method: e.method,
+		status: e.statusCode ?? 503
+	});
+	return typeof Response < "u" ? new Response(t, {
+		status: e.statusCode ?? 503,
+		headers: {
+			"content-type": "application/json",
+			"x-ui-chaos": "true"
+		}
+	}) : {
+		ok: !1,
+		status: e.statusCode ?? 503,
+		url: e.url,
+		headers: { get(e) {
+			let t = e.toLowerCase();
+			return t === "content-type" ? "application/json" : t === "x-ui-chaos" ? "true" : null;
+		} },
+		text: async () => t,
+		json: async () => JSON.parse(t)
+	};
+}
+function D(e, t) {
+	return t.length === 0 ? !0 : t.includes(e);
+}
+function O(e, t, n) {
+	return n.some((t) => k(e, t)) ? !1 : t.length === 0 ? !0 : t.some((t) => k(e, t));
+}
+function k(e, t) {
+	return t ? t.includes("*") ? RegExp(`^${t.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`).test(e) : e.includes(t) : !1;
+}
+function A(e, t) {
+	return t[M(e, 0, t.length - 1)] ?? "network-error";
+}
+function j(e, t) {
+	return t[M(e, 0, t.length - 1)] ?? 503;
+}
+function M(e, t, n) {
+	let r = Math.min(t, n), i = Math.max(t, n);
+	return r === i ? r : Math.floor(e.next() * (i - r + 1)) + r;
+}
+function N(e) {
+	return e.toUpperCase();
+}
+function P(e) {
+	let t = typeof window < "u" && window.location?.href ? window.location.href : "http://localhost:3000/";
+	try {
+		return new URL(e, t).toString();
+	} catch {
+		return e;
+	}
+}
+function F(e) {
+	return typeof Event < "u" ? new Event(e) : { type: e };
+}
+function I(e, t) {
+	if (!e || typeof e != "object") return;
+	let n = e[t];
+	return typeof n == "string" ? n : void 0;
+}
+async function L(e) {
+	e <= 0 || await new Promise((t) => {
+		setTimeout(t, e);
+	});
+}
+function R(e, t) {
+	let n = Math.max(0, e?.minDelayMs ?? 0), r = Math.max(n, e?.maxDelayMs ?? n);
+	return {
+		enabled: e?.enabled ?? !1,
+		historySize: Math.max(1, e?.historySize ?? t),
+		minDelayMs: n,
+		maxDelayMs: r,
+		failureRate: H(e?.failureRate ?? 0, 0, 1),
+		failureMode: z(e?.failureMode),
+		statusCodes: B(e?.statusCodes),
+		methods: V(e?.methods),
+		includeUrls: e?.includeUrls ?? [],
+		excludeUrls: e?.excludeUrls ?? [],
+		interceptFetch: e?.interceptFetch ?? !0,
+		interceptXhr: e?.interceptXhr ?? !0
+	};
+}
+function z(e) {
+	return e ? Array.isArray(e) ? e : [e] : ["network-error"];
+}
+function B(e) {
+	return !e || e.length === 0 ? [...x] : e.filter((e) => Number.isFinite(e) && e >= 400);
+}
+function V(e) {
+	return e?.map((e) => e.toUpperCase()) ?? [];
+}
+function H(e, t, n) {
+	return Math.min(n, Math.max(t, e));
+}
+//#endregion
+//#region src/network-recorder.ts
+var U = class {
+	events = [];
+	constructor(e = 50) {
+		this.maxSize = e;
+	}
+	record(e) {
+		this.events.push(e), this.events.length > this.maxSize && this.events.shift();
+	}
+	getHistory() {
+		return [...this.events];
+	}
+	clear() {
+		this.events = [];
+	}
+};
+//#endregion
+//#region src/random.ts
+function W(e) {
+	if (typeof e != "number" || !Number.isFinite(e)) return { next: () => Math.random() };
+	let t = G(e);
+	return { next: () => {
+		t += 1831565813;
+		let e = t;
+		return e = Math.imul(e ^ e >>> 15, e | 1), e ^= e + Math.imul(e ^ e >>> 7, e | 61), ((e ^ e >>> 14) >>> 0) / 4294967296;
+	} };
+}
+function G(e) {
+	let t = Math.floor(e) >>> 0;
+	return t === 0 ? 1 : t;
+}
+//#endregion
+//#region src/recorder.ts
+var K = class {
+	actions = [];
+	constructor(e = 50) {
+		this.maxSize = e;
+	}
+	record(e) {
+		this.actions.push(e), this.actions.length > this.maxSize && this.actions.shift();
+	}
+	getHistory() {
+		return [...this.actions];
+	}
+	clear() {
+		this.actions = [];
+	}
+}, q = class {
+	enabled;
+	recorder;
+	networkRecorder;
+	monkey;
+	detector;
+	network;
+	startedAt;
+	url;
+	userAgent;
+	options;
+	crash;
+	destroyed = !1;
+	constructor(t = {}) {
+		if (this.options = {
+			intervalMs: t.intervalMs ?? 100,
+			historySize: t.historySize ?? 50,
+			autoStart: t.autoStart ?? !0,
+			enabled: t.enabled ?? !0,
+			log: t.log ?? !0,
+			enableMonkey: t.enableMonkey ?? !0,
+			interactionSelector: t.interactionSelector ?? "button, input, select, textarea, a[href], [role=\"button\"], [tabindex]:not([tabindex=\"-1\"])",
+			excludeSelector: t.excludeSelector ?? "[data-chaos-ignore], [data-ui-chaos-ignore]",
+			exportFormat: t.exportFormat ?? "playwright",
+			downloadOnCrash: t.downloadOnCrash ?? !0,
+			detectTargetRemoval: t.detectTargetRemoval ?? !0,
+			detectEmptyTarget: t.detectEmptyTarget ?? !1,
+			baseFileName: t.baseFileName,
+			onCrash: t.onCrash,
+			seed: t.seed
+		}, this.startedAt = Date.now(), this.url = t.initialUrl ?? Y(), this.userAgent = X(), !this.options.enabled) {
+			this.enabled = !1, this.recorder = null, this.networkRecorder = null, this.monkey = null, this.detector = null, this.network = null;
+			return;
+		}
+		if (!J()) {
+			this.enabled = !1, this.recorder = null, this.networkRecorder = null, this.monkey = null, this.detector = null, this.network = null, this.log("Skipping initialization because no browser runtime is available.");
+			return;
+		}
+		let n = t.target ?? document.body;
+		if (!n) {
+			this.enabled = !1, this.recorder = null, this.networkRecorder = null, this.monkey = null, this.detector = null, this.network = null, this.log("Skipping initialization because no target element was provided.");
+			return;
+		}
+		let r = W(t.seed), i = R(t.network, this.options.historySize);
+		this.enabled = !0, this.recorder = new K(this.options.historySize), this.networkRecorder = new U(i.historySize), this.monkey = this.options.enableMonkey ? new b(n, this.options.intervalMs, this.recorder, {
+			interactionSelector: this.options.interactionSelector,
+			excludeSelector: this.options.excludeSelector,
+			log: this.options.log,
+			random: r
+		}) : null, this.network = i.enabled ? new S({
+			config: i,
+			log: this.options.log,
+			random: r,
+			recorder: this.networkRecorder
+		}) : null, this.detector = new e({
+			target: n,
+			detectTargetRemoval: this.options.detectTargetRemoval,
+			detectEmptyTarget: this.options.detectEmptyTarget,
+			onCrash: (e) => this.handleCrash(e)
+		}), this.detector.start(), this.options.autoStart && this.start();
+	}
+	get isEnabled() {
+		return this.enabled && !this.destroyed;
+	}
+	get isRunning() {
+		return !!(this.monkey?.isRunning || this.network?.isRunning);
+	}
+	start() {
+		if (!this.isEnabled) return !1;
+		let e = this.monkey?.start() ?? !1, t = this.network?.start() ?? !1;
+		return e || t;
+	}
+	stop() {
+		this.monkey?.stop(), this.network?.stop();
+	}
+	destroy() {
+		this.destroyed || (this.stop(), this.detector?.stop(), this.network?.destroy(), this.destroyed = !0, this.log("Controller destroyed."));
+	}
+	runOnce() {
+		return !this.isEnabled || !this.monkey ? null : this.monkey.runOnce();
+	}
+	getHistory() {
+		return this.recorder?.getHistory() ?? [];
+	}
+	getNetworkHistory() {
+		return this.networkRecorder?.getHistory() ?? [];
+	}
+	getScenario() {
+		return {
+			url: this.url,
+			startedAt: this.startedAt,
+			endedAt: this.crash?.timestamp ?? Date.now(),
+			userAgent: this.userAgent,
+			seed: this.options.seed,
+			actions: this.getHistory(),
+			network: this.getNetworkHistory(),
+			crash: this.crash
+		};
+	}
+	exportScenario(e = this.options.exportFormat) {
+		return a(this.getScenario(), e);
+	}
+	downloadScenario(e = this.options.exportFormat) {
+		let t = Z(this.options.baseFileName ?? "ui-chaos-crash", this.crash?.timestamp ?? Date.now());
+		return s(this.exportScenario(e), { baseFileName: t });
+	}
+	reportCrash(e, t = "manual") {
+		this.handleCrash({
+			kind: t,
+			reason: e,
+			timestamp: Date.now()
+		});
+	}
+	handleCrash(e) {
+		if (this.destroyed || this.crash) return;
+		this.crash = {
+			kind: e.kind,
+			reason: e.reason,
+			timestamp: e.timestamp
+		}, this.stop(), this.detector?.stop(), this.log(`Crash detected: ${e.kind} - ${e.reason}`);
+		let t = this.exportScenario(this.options.exportFormat);
+		if (this.options.downloadOnCrash && this.downloadScenario(this.options.exportFormat), typeof this.options.onCrash == "function") {
+			let n = {
+				reason: e.reason,
+				kind: e.kind,
+				scenario: this.getScenario(),
+				exports: t
+			};
+			try {
+				this.options.onCrash(n);
+			} catch (e) {
+				let t = e instanceof Error ? e.message : "Unknown error while running onCrash callback.";
+				this.log(`onCrash callback failed: ${t}`);
+			}
+		}
+	}
+	log(e) {
+		this.options.log && console.log(`[ui-chaos] ${e}`);
+	}
+};
+function J() {
+	return typeof window < "u" && typeof document < "u";
+}
+function Y() {
+	return typeof window < "u" && window.location?.href ? window.location.href : "http://localhost:3000/";
+}
+function X() {
+	if (typeof window < "u" && window.navigator?.userAgent) return window.navigator.userAgent;
+	if (typeof navigator < "u" && navigator.userAgent) return navigator.userAgent;
+}
+function Z(e, t) {
+	return `${e}-${new Date(t).toISOString().replace(/[:.]/g, "-")}`;
+}
+//#endregion
+//#region src/index.ts
+function Q(e = {}) {
+	return new q(e);
+}
+//#endregion
+export { K as ActionRecorder, b as ChaosMonkey, e as CrashDetector, v as DEFAULT_EXCLUDE_SELECTOR, _ as DEFAULT_INTERACTION_SELECTOR, S as NetworkChaosManager, U as NetworkRecorder, q as UiChaosController, W as createRandomSource, s as downloadExportBundle, o as downloadTextFile, i as generateCypressTest, r as generatePlaywrightTest, a as generateScenarioExports, Q as initChaos, R as normalizeNetworkChaosOptions };
+
+//# sourceMappingURL=index.js.map

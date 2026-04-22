@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ui-chaos Demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(255, 175, 36, 0.18), transparent 32%),
+        radial-gradient(circle at bottom right, rgba(226, 58, 58, 0.16), transparent 30%),
+        #f8f4eb;
+      color: #1c130f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 2rem;
+      display: grid;
+      place-items: center;
+    }
+
+    .shell {
+      width: min(100%, 720px);
+      padding: 2rem;
+      border-radius: 24px;
+      background: rgba(255, 252, 246, 0.92);
+      border: 1px solid rgba(28, 19, 15, 0.08);
+      box-shadow: 0 24px 80px rgba(28, 19, 15, 0.12);
+      backdrop-filter: blur(10px);
+    }
+
+    h1 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      font-size: clamp(2rem, 4vw, 3rem);
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    p {
+      margin-top: 0;
+      color: rgba(28, 19, 15, 0.74);
+    }
+
+    .container {
+      margin-top: 1.5rem;
+      padding: 1.25rem;
+      border-radius: 18px;
+      border: 1px solid rgba(28, 19, 15, 0.08);
+      background: #fff;
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .row {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    button,
+    input {
+      font: inherit;
+      border-radius: 999px;
+      border: 1px solid rgba(28, 19, 15, 0.12);
+      padding: 0.8rem 1rem;
+    }
+
+    button {
+      cursor: pointer;
+      background: #1c130f;
+      color: #fff8ef;
+    }
+
+    .danger {
+      background: #c2362f;
+    }
+
+    .status {
+      margin-top: 1rem;
+      padding: 0.9rem 1rem;
+      border-radius: 14px;
+      background: #f4ece2;
+      color: #5f463a;
+      min-height: 3.2rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <h1>ui-chaos</h1>
+    <p>
+      Randomly stress your staging UI, then export Playwright or Cypress repros when the app melts down.
+    </p>
+
+    <div class="container" id="app-root">
+      <input type="text" name="email" placeholder="Type here..." />
+      <div class="row">
+        <button id="increment-btn">Count: <span id="count">0</span></button>
+        <button class="danger" id="crash-btn">Crash App</button>
+      </div>
+    </div>
+
+    <div class="status" id="status">
+      Chaos monkey is active. If the counter reaches 10 or the app root empties, a repro test will be generated.
+    </div>
+  </main>
+
+  <script type="module">
+    import { initChaos } from './src/index.ts';
+
+    const status = document.getElementById('status');
+
+    const chaos = initChaos({
+      target: document.getElementById('app-root'),
+      intervalMs: 60,
+      historySize: 25,
+      detectEmptyTarget: true,
+      exportFormat: 'both',
+      onCrash(event) {
+        status.textContent = `Crash captured: ${event.reason}. Downloaded ${event.exports.playwright ? 'Playwright' : ''}${event.exports.playwright && event.exports.cypress ? ' + ' : ''}${event.exports.cypress ? 'Cypress' : ''} repro scripts.`;
+      }
+    });
+
+    let count = 0;
+    const countSpan = document.getElementById('count');
+    const incrementButton = document.getElementById('increment-btn');
+    const crashButton = document.getElementById('crash-btn');
+
+    incrementButton.addEventListener('click', () => {
+      count += 1;
+      countSpan.textContent = String(count);
+
+      if (count >= 10) {
+        throw new Error('Counter reached 10. Unhandled exception triggered.');
+      }
+    });
+
+    crashButton.addEventListener('click', () => {
+      document.getElementById('app-root').innerHTML = '';
+    });
+
+    window.chaos = chaos;
+  </script>
+</body>
+</html>
