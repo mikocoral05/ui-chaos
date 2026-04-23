@@ -1,6 +1,6 @@
 {
   "name": "ui-chaos",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Chaos engineering for frontend apps. Randomly attack your staging UI and export repro tests when it breaks.",
   "type": "module",
   "main": "./dist/index.cjs",
