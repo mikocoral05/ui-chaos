@@ -1,19 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { initChaos } from '../src/index.ts';
+import type { ChaosController } from '../src/types.ts';
 import { FakeElement, installFakeBrowser } from './helpers/fake-dom.ts';
 
 describe('UiChaosController', () => {
   let cleanup: (() => void) | undefined;
+  let controllers: ChaosController[] = [];
 
   afterEach(() => {
+    controllers.reverse().forEach((controller) => controller.destroy());
+    controllers = [];
     cleanup?.();
     cleanup = undefined;
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('returns a safe noop controller when disabled', () => {
-    const controller = initChaos({ enabled: false, log: false });
+  it('defaults to a safe noop controller until explicitly enabled', () => {
+    const controller = initChaos({ log: false });
 
     expect(controller.isEnabled).toBe(false);
     expect(controller.isRunning).toBe(false);
@@ -36,9 +40,11 @@ describe('UiChaosController', () => {
 
     const controller = initChaos({
       target: target as unknown as HTMLElement,
+      enabled: true,
       autoStart: false,
       log: false
     });
+    controllers.push(controller);
 
     const action = controller.runOnce();
 
@@ -60,10 +66,12 @@ describe('UiChaosController', () => {
     const onCrash = vi.fn();
     const controller = initChaos({
       target: target as unknown as HTMLElement,
+      enabled: true,
       downloadOnCrash: false,
       log: false,
       onCrash
     });
+    controllers.push(controller);
 
     expect(controller.isRunning).toBe(true);
 
@@ -89,6 +97,7 @@ describe('UiChaosController', () => {
     const originalFetch = globalThis.fetch;
     const controller = initChaos({
       target: target as unknown as HTMLElement,
+      enabled: true,
       enableMonkey: false,
       log: false,
       network: {
@@ -102,6 +111,7 @@ describe('UiChaosController', () => {
         interceptXhr: false
       }
     });
+    controllers.push(controller);
 
     expect(controller.isRunning).toBe(true);
 
@@ -145,6 +155,7 @@ describe('UiChaosController', () => {
 
     const controller = initChaos({
       target: target as unknown as HTMLElement,
+      enabled: true,
       enableMonkey: false,
       log: false,
       network: {
@@ -157,6 +168,7 @@ describe('UiChaosController', () => {
         interceptFetch: false
       }
     });
+    controllers.push(controller);
 
     const result = await new Promise<{ status: number }>((resolve) => {
       const xhr = new XMLHttpRequest();

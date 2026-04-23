@@ -17,10 +17,6 @@ export declare class NetworkChaosManager {
     private readonly options;
     private active;
     private nextEventId;
-    private fetchInstalled;
-    private xhrInstalled;
-    private readonly originalFetch;
-    private readonly originalXhr;
     constructor(options: NetworkChaosRuntimeOptions);
     get isEnabled(): boolean;
     get isRunning(): boolean;
@@ -28,9 +24,8 @@ export declare class NetworkChaosManager {
     stop(): void;
     destroy(): void;
     getHistory(): RecordedNetworkEvent[];
-    private install;
-    private restore;
-    private handleFetch;
+    supportsTransport(transport: NetworkTransport): boolean;
+    canHandleRequest(url: string, method: string, transport: NetworkTransport): boolean;
     planRequest(url: string, method: string, transport: NetworkTransport): PlannedNetworkEvent | null;
     private log;
 }

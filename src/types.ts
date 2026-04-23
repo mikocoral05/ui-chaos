@@ -13,6 +13,7 @@ export interface ChaosOptions {
   /**
    * Hard on/off switch. Useful for staging-only initialization:
    * enabled: import.meta.env.MODE === 'staging'
+   * Defaults to false so chaos never runs unless explicitly opted in.
    */
   enabled?: boolean;
   /** Enable console logging. Defaults to true. */
@@ -35,7 +36,7 @@ export interface ChaosOptions {
   network?: NetworkChaosOptions;
   /** Export format to generate when a crash is detected. Defaults to 'playwright'. */
   exportFormat?: ExportFormat;
-  /** Automatically download generated tests after a crash. Defaults to true. */
+  /** Automatically download generated tests after a crash. Defaults to false. */
   downloadOnCrash?: boolean;
   /** Override the captured URL used in exported test files. */
   initialUrl?: string;

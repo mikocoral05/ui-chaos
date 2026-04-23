@@ -28,26 +28,28 @@ type XhrConstructor = new () => XMLHttpRequest;
 
 const DEFAULT_STATUS_CODES = [500, 502, 503, 504];
 
+interface NetworkInterceptorRuntime {
+  managers: NetworkChaosManager[];
+  originalFetch: FetchLike | null;
+  originalXhr: XhrConstructor | null;
+  fetchInstalled: boolean;
+  xhrInstalled: boolean;
+}
+
+const networkInterceptorRuntime: NetworkInterceptorRuntime = {
+  managers: [],
+  originalFetch: null,
+  originalXhr: null,
+  fetchInstalled: false,
+  xhrInstalled: false
+};
+
 export class NetworkChaosManager {
   private active = false;
   private nextEventId = 0;
-  private fetchInstalled = false;
-  private xhrInstalled = false;
-  private readonly originalFetch: FetchLike | null;
-  private readonly originalXhr: XhrConstructor | null;
 
   constructor(private readonly options: NetworkChaosRuntimeOptions) {
-    this.originalFetch =
-      this.options.config.interceptFetch && typeof window.fetch === 'function'
-        ? (window.fetch as unknown as FetchLike)
-        : null;
-
-    this.originalXhr =
-      this.options.config.interceptXhr && typeof window.XMLHttpRequest === 'function'
-        ? window.XMLHttpRequest as unknown as XhrConstructor
-        : null;
-
-    this.install();
+    registerNetworkChaosManager(this);
   }
 
   get isEnabled(): boolean {
@@ -79,109 +81,39 @@ export class NetworkChaosManager {
 
   destroy() {
     this.stop();
-    this.restore();
+    unregisterNetworkChaosManager(this);
   }
 
   getHistory(): RecordedNetworkEvent[] {
     return this.options.recorder.getHistory();
   }
 
-  private install() {
-    if (this.originalFetch && !this.fetchInstalled) {
-      const patchedFetch = async (input: unknown, init?: unknown) => {
-        return this.handleFetch(input, init);
-      };
-
-      (window as unknown as Record<string, unknown>).fetch = patchedFetch;
-      (globalThis as Record<string, unknown>).fetch = patchedFetch;
-      this.fetchInstalled = true;
+  supportsTransport(transport: NetworkTransport): boolean {
+    if (transport === 'fetch') {
+      return this.options.config.interceptFetch;
     }
 
-    if (this.originalXhr && !this.xhrInstalled) {
-      const manager = this;
-      const OriginalXhr = this.originalXhr;
-
-      function PatchedXMLHttpRequest(this: unknown) {
-        return new NetworkChaosXMLHttpRequest(manager, OriginalXhr);
-      }
-
-      const patchedXhr = PatchedXMLHttpRequest as unknown as typeof XMLHttpRequest;
-      const constants = {
-        UNSENT: 0,
-        OPENED: 1,
-        HEADERS_RECEIVED: 2,
-        LOADING: 3,
-        DONE: 4
-      };
-
-      Object.assign(patchedXhr, constants);
-
-      (window as unknown as Record<string, unknown>).XMLHttpRequest = patchedXhr;
-      (globalThis as Record<string, unknown>).XMLHttpRequest = patchedXhr;
-      this.xhrInstalled = true;
-    }
+    return this.options.config.interceptXhr;
   }
 
-  private restore() {
-    if (this.fetchInstalled && this.originalFetch) {
-      (window as unknown as Record<string, unknown>).fetch = this.originalFetch;
-      (globalThis as Record<string, unknown>).fetch = this.originalFetch;
-      this.fetchInstalled = false;
+  canHandleRequest(url: string, method: string, transport: NetworkTransport): boolean {
+    if (!this.active || !this.supportsTransport(transport)) {
+      return false;
     }
 
-    if (this.xhrInstalled && this.originalXhr) {
-      (window as unknown as Record<string, unknown>).XMLHttpRequest = this.originalXhr;
-      (globalThis as Record<string, unknown>).XMLHttpRequest = this.originalXhr;
-      this.xhrInstalled = false;
-    }
-  }
-
-  private async handleFetch(input: unknown, init?: unknown): Promise<unknown> {
-    if (!this.originalFetch) {
-      throw new Error('[ui-chaos] fetch is unavailable in this runtime.');
-    }
-
-    if (!this.active) {
-      return this.originalFetch(input, init);
-    }
-
-    const request = normalizeFetchRequest(input, init);
-    const planned = this.planRequest(request.url, request.method, 'fetch');
-
-    if (!planned) {
-      return this.originalFetch(input, init);
-    }
-
-    if (planned.event.delayMs > 0) {
-      await sleep(planned.event.delayMs);
-    }
-
-    if (planned.event.failureMode === 'network-error') {
-      throw new TypeError(
-        `[ui-chaos] Injected network error for ${planned.event.method} ${planned.event.url}`
-      );
-    }
-
-    if (planned.event.failureMode === 'http-error') {
-      return createFetchFailureResponse(planned.event);
-    }
-
-    return this.originalFetch(input, init);
+    const normalizedMethod = normalizeMethod(method);
+    return (
+      matchesMethod(normalizedMethod, this.options.config.methods) &&
+      matchesUrl(url, this.options.config.includeUrls, this.options.config.excludeUrls)
+    );
   }
 
   planRequest(url: string, method: string, transport: NetworkTransport): PlannedNetworkEvent | null {
-    if (!this.active) {
+    if (!this.canHandleRequest(url, method, transport)) {
       return null;
     }
 
-    const normalizedMethod = method.toUpperCase();
-    if (!matchesMethod(normalizedMethod, this.options.config.methods)) {
-      return null;
-    }
-
-    if (!matchesUrl(url, this.options.config.includeUrls, this.options.config.excludeUrls)) {
-      return null;
-    }
+    const normalizedMethod = normalizeMethod(method);
 
     const delayMs = randomInt(
       this.options.random,
@@ -234,6 +166,167 @@ export class NetworkChaosManager {
   }
 }
 
+function registerNetworkChaosManager(manager: NetworkChaosManager) {
+  networkInterceptorRuntime.managers.push(manager);
+  syncFetchInterceptor();
+  syncXhrInterceptor();
+}
+
+function unregisterNetworkChaosManager(manager: NetworkChaosManager) {
+  networkInterceptorRuntime.managers = networkInterceptorRuntime.managers.filter(
+    (candidate) => candidate !== manager
+  );
+  syncFetchInterceptor();
+  syncXhrInterceptor();
+}
+
+function syncFetchInterceptor() {
+  if (hasRegisteredTransport('fetch')) {
+    installFetchInterceptor();
+    return;
+  }
+
+  restoreFetchInterceptor();
+}
+
+function syncXhrInterceptor() {
+  if (hasRegisteredTransport('xhr')) {
+    installXhrInterceptor();
+    return;
+  }
+
+  restoreXhrInterceptor();
+}
+
+function hasRegisteredTransport(transport: NetworkTransport): boolean {
+  return networkInterceptorRuntime.managers.some((manager) => manager.supportsTransport(transport));
+}
+
+function installFetchInterceptor() {
+  if (
+    networkInterceptorRuntime.fetchInstalled ||
+    typeof window === 'undefined' ||
+    typeof window.fetch !== 'function'
+  ) {
+    return;
+  }
+
+  networkInterceptorRuntime.originalFetch = window.fetch as unknown as FetchLike;
+
+  const patchedFetch = async (input: unknown, init?: unknown) => {
+    return handlePatchedFetch(input, init);
+  };
+
+  (window as unknown as Record<string, unknown>).fetch = patchedFetch;
+  (globalThis as Record<string, unknown>).fetch = patchedFetch;
+  networkInterceptorRuntime.fetchInstalled = true;
+}
+
+function restoreFetchInterceptor() {
+  if (!networkInterceptorRuntime.fetchInstalled || !networkInterceptorRuntime.originalFetch) {
+    return;
+  }
+
+  (window as unknown as Record<string, unknown>).fetch = networkInterceptorRuntime.originalFetch;
+  (globalThis as Record<string, unknown>).fetch = networkInterceptorRuntime.originalFetch;
+  networkInterceptorRuntime.fetchInstalled = false;
+  networkInterceptorRuntime.originalFetch = null;
+}
+
+function installXhrInterceptor() {
+  if (
+    networkInterceptorRuntime.xhrInstalled ||
+    typeof window === 'undefined' ||
+    typeof window.XMLHttpRequest !== 'function'
+  ) {
+    return;
+  }
+
+  networkInterceptorRuntime.originalXhr = window.XMLHttpRequest as unknown as XhrConstructor;
+  const OriginalXhr = networkInterceptorRuntime.originalXhr;
+
+  function PatchedXMLHttpRequest(this: unknown) {
+    return new NetworkChaosXMLHttpRequest(OriginalXhr);
+  }
+
+  const patchedXhr = PatchedXMLHttpRequest as unknown as typeof XMLHttpRequest;
+  Object.assign(patchedXhr, {
+    UNSENT: 0,
+    OPENED: 1,
+    HEADERS_RECEIVED: 2,
+    LOADING: 3,
+    DONE: 4
+  });
+
+  (window as unknown as Record<string, unknown>).XMLHttpRequest = patchedXhr;
+  (globalThis as Record<string, unknown>).XMLHttpRequest = patchedXhr;
+  networkInterceptorRuntime.xhrInstalled = true;
+}
+
+function restoreXhrInterceptor() {
+  if (!networkInterceptorRuntime.xhrInstalled || !networkInterceptorRuntime.originalXhr) {
+    return;
+  }
+
+  (window as unknown as Record<string, unknown>).XMLHttpRequest = networkInterceptorRuntime.originalXhr;
+  (globalThis as Record<string, unknown>).XMLHttpRequest = networkInterceptorRuntime.originalXhr;
+  networkInterceptorRuntime.xhrInstalled = false;
+  networkInterceptorRuntime.originalXhr = null;
+}
+
+async function handlePatchedFetch(input: unknown, init?: unknown): Promise<unknown> {
+  if (!networkInterceptorRuntime.originalFetch) {
+    throw new Error('[ui-chaos] fetch is unavailable in this runtime.');
+  }
+
+  const request = normalizeFetchRequest(input, init);
+  const planned = planInterceptedRequest(request.url, request.method, 'fetch');
+
+  if (!planned) {
+    return invokeOriginalFetch(input, init);
+  }
+
+  if (planned.event.delayMs > 0) {
+    await sleep(planned.event.delayMs);
+  }
+
+  if (planned.event.failureMode === 'network-error') {
+    throw new TypeError(
+      `[ui-chaos] Injected network error for ${planned.event.method} ${planned.event.url}`
+    );
+  }
+
+  if (planned.event.failureMode === 'http-error') {
+    return createFetchFailureResponse(planned.event);
+  }
+
+  return invokeOriginalFetch(input, init);
+}
+
+function planInterceptedRequest(
+  url: string,
+  method: string,
+  transport: NetworkTransport
+): PlannedNetworkEvent | null {
+  const owner = [...networkInterceptorRuntime.managers]
+    .reverse()
+    .find((manager) => manager.canHandleRequest(url, method, transport));
+
+  if (!owner) {
+    return null;
+  }
+
+  return owner.planRequest(url, method, transport);
+}
+
+function invokeOriginalFetch(input: unknown, init?: unknown): Promise<unknown> {
+  if (!networkInterceptorRuntime.originalFetch) {
+    throw new Error('[ui-chaos] fetch is unavailable in this runtime.');
+  }
+
+  return networkInterceptorRuntime.originalFetch.call(window, input, init);
+}
+
 class NetworkChaosXMLHttpRequest {
   static readonly UNSENT = 0;
   static readonly OPENED = 1;
@@ -271,10 +364,7 @@ class NetworkChaosXMLHttpRequest {
   private readonly responseHeaders = new Map<string, string>();
   private aborted = false;
 
-  constructor(
-    private readonly manager: NetworkChaosManager,
-    private readonly NativeXhr: XhrConstructor
-  ) {}
+  constructor(private readonly NativeXhr: XhrConstructor) {}
 
   open(method: string, url: string, async?: boolean, user?: string, password?: string) {
     this.openArgs = [method, url, async, user, password];
@@ -291,7 +381,7 @@ class NetworkChaosXMLHttpRequest {
   send(body?: Document | XMLHttpRequestBodyInit | null) {
     const [method, rawUrl] = this.openArgs ?? ['GET', '', true, undefined, undefined];
     const url = resolveUrl(rawUrl);
-    const planned = this.manager.planRequest(url, method, 'xhr');
+    const planned = planInterceptedRequest(url, method, 'xhr');
 
     if (!planned) {
       this.performNativeSend(body);

@@ -106,34 +106,112 @@
       <div class="row">
         <button id="increment-btn">Count: <span id="count">0</span></button>
         <button class="danger" id="crash-btn">Crash App</button>
+        <button id="fetch-btn" type="button">Fetch Profile</button>
       </div>
     </div>
 
     <div class="status" id="status">
-      Chaos monkey is active. If the counter reaches 10 or the app root empties, a repro test will be generated.
+      Loading demo configuration...
     </div>
+    <div class="status" id="network-status">Network request idle.</div>
   </main>
 
   <script type="module">
     import { initChaos } from './src/index.ts';
 
+    const params = new URLSearchParams(window.location.search);
+    const parseBoolean = (key, fallback) => {
+      const value = params.get(key);
+      if (value === null) {
+        return fallback;
+      }
+
+      return !/^(false|0|off|no)$/i.test(value);
+    };
+    const parseNumber = (key, fallback) => {
+      const value = params.get(key);
+      if (value === null) {
+        return fallback;
+      }
+
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+
+    const appRoot = document.getElementById('app-root');
     const status = document.getElementById('status');
+    const networkStatus = document.getElementById('network-status');
+    const chaosEnabled = parseBoolean('chaos', true);
+    const autoStart = parseBoolean('autoStart', true);
+    const enableMonkey = parseBoolean('monkey', true);
+    const enableNetwork = parseBoolean('network', false);
+    const interactionSelector = params.get('interactionSelector') ?? undefined;
+    const excludeSelector = params.get('excludeSelector') ?? undefined;
+    const seed = parseNumber('seed', 42);
+
+    const describeMode = () => {
+      if (!chaosEnabled) {
+        return 'Chaos is disabled. Add ?chaos=true to opt in for the demo.';
+      }
+
+      const layers = [];
+      if (enableMonkey) {
+        layers.push(autoStart ? 'auto-running monkey' : 'manual monkey');
+      }
+
+      if (enableNetwork) {
+        layers.push('network chaos');
+      }
+
+      const layerDescription = layers.length > 0 ? layers.join(' + ') : 'crash recording only';
+      return `Chaos demo ready with ${layerDescription}. Seed ${seed}.`;
+    };
 
     const chaos = initChaos({
-      target: document.getElementById('app-root'),
-      intervalMs: 60,
+      enabled: chaosEnabled,
+      autoStart,
+      enableMonkey,
+      target: appRoot,
+      intervalMs: parseNumber('intervalMs', 60),
       historySize: 25,
+      seed,
       detectEmptyTarget: true,
       exportFormat: 'both',
+      downloadOnCrash: parseBoolean('download', false),
+      interactionSelector,
+      excludeSelector,
+      network: enableNetwork
+        ? {
+            enabled: true,
+            minDelayMs: parseNumber('networkDelayMs', 150),
+            maxDelayMs: parseNumber('networkDelayMs', 150),
+            failureRate: 1,
+            failureMode: 'http-error',
+            includeUrls: ['/api/profile'],
+            statusCodes: [503],
+            interceptXhr: false
+          }
+        : undefined,
       onCrash(event) {
-        status.textContent = `Crash captured: ${event.reason}. Downloaded ${event.exports.playwright ? 'Playwright' : ''}${event.exports.playwright && event.exports.cypress ? ' + ' : ''}${event.exports.cypress ? 'Cypress' : ''} repro scripts.`;
+        const generated = [];
+        if (event.exports.playwright) {
+          generated.push('Playwright');
+        }
+
+        if (event.exports.cypress) {
+          generated.push('Cypress');
+        }
+
+        status.textContent = `Crash captured: ${event.reason}. Generated ${generated.join(' + ')} repro scripts.`;
       }
     });
+    status.textContent = describeMode();
 
     let count = 0;
     const countSpan = document.getElementById('count');
     const incrementButton = document.getElementById('increment-btn');
     const crashButton = document.getElementById('crash-btn');
+    const fetchButton = document.getElementById('fetch-btn');
 
     incrementButton.addEventListener('click', () => {
       count += 1;
@@ -145,10 +223,50 @@
     });
 
     crashButton.addEventListener('click', () => {
-      document.getElementById('app-root').innerHTML = '';
+      appRoot.innerHTML = '';
+    });
+
+    const fetchProfile = async () => {
+      networkStatus.textContent = 'Fetching profile...';
+
+      try {
+        const response = await fetch('/api/profile');
+        const payload = await response.json().catch(() => null);
+
+        if (!response.ok) {
+          const reason =
+            payload && typeof payload.error === 'string'
+              ? `${response.status} ${payload.error}`
+              : `HTTP ${response.status}`;
+          throw new Error(reason);
+        }
+
+        networkStatus.textContent = `Profile loaded with status ${response.status}.`;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        networkStatus.textContent = `Request failed: ${message}`;
+      }
+    };
+
+    fetchButton.addEventListener('click', () => {
+      void fetchProfile();
     });
 
     window.chaos = chaos;
+    window.demo = {
+      fetchProfile,
+      getConfig() {
+        return {
+          chaosEnabled,
+          autoStart,
+          enableMonkey,
+          enableNetwork,
+          interactionSelector,
+          excludeSelector,
+          seed
+        };
+      }
+    };
   </script>
 </body>
 </html>

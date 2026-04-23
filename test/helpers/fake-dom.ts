@@ -255,6 +255,14 @@ export class FakeElement extends FakeNode {
     return this.appendChild(child);
   }
 
+  contains(target: FakeElement): boolean {
+    if (target === this) {
+      return true;
+    }
+
+    return this.children.some((child) => child.contains(target));
+  }
+
   click() {
     this.clicked += 1;
     this.dispatchedEvents.push('click');
@@ -276,12 +284,44 @@ export class FakeElement extends FakeNode {
 
   querySelectorAll(selector: string): FakeElement[] {
     const selectors = selector.split(',').map((part) => part.trim()).filter(Boolean);
-    return this.children.filter((child) => selectors.some((candidate) => child.matches(candidate)));
+    const matches: FakeElement[] = [];
+
+    for (const child of this.children) {
+      if (selectors.some((candidate) => child.matches(candidate))) {
+        matches.push(child);
+      }
+
+      matches.push(...child.querySelectorAll(selector));
+    }
+
+    return matches;
+  }
+
+  closest(selector: string): FakeElement | null {
+    let current: FakeElement | null = this;
+
+    while (current) {
+      if (current.matches(selector)) {
+        return current;
+      }
+
+      current = current.parentElement;
+    }
+
+    return null;
   }
 
   matches(selector: string): boolean {
     if (!selector) {
       return false;
+    }
+
+    if (selector.includes(',')) {
+      return selector
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .some((part) => this.matches(part));
     }
 
     if (selector === 'button') {

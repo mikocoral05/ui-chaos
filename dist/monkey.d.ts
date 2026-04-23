@@ -42,6 +42,8 @@ export declare class ChaosMonkey {
     private getElementCenter;
     private readElementText;
     private randomIndex;
+    private matchesSelector;
+    private hasMatchingAncestor;
     private log;
     private readBooleanProperty;
     private readStringProperty;

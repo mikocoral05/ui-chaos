@@ -40,6 +40,11 @@ const chaos = initChaos({
 });
 ```
 
+`ui-chaos` is safe by default:
+
+- `enabled` defaults to `false`, so chaos only runs when you explicitly opt in.
+- `downloadOnCrash` defaults to `false`, so crash exports are generated without triggering browser downloads unless you enable them.
+
 The returned controller exposes:
 
 - `start()`
@@ -133,6 +138,8 @@ const chaos = initChaos({
 });
 ```
 
+Both `enabled` and `downloadOnCrash` are opt-in. That keeps the default integration inert until you wire it to a staging flag or an internal debug toggle.
+
 Use `detectEmptyTarget: true` only when an empty root actually indicates a crash in your app. It is disabled by default to avoid false positives.
 
 Set `seed` when you want deterministic chaos decisions across runs. The exported scenario also includes the seed for easier replay.
@@ -177,4 +184,11 @@ try {
 ```bash
 npm run build
 npm test
+npm run test:e2e
+```
+
+The Playwright suite runs the demo page in a real browser and covers both DOM chaos and network interception. On Windows it prefers the locally installed Edge channel. On Linux or macOS, install the bundled Chromium browser once with:
+
+```bash
+npx playwright install chromium
 ```

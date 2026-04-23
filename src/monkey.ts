@@ -78,6 +78,10 @@ export class ChaosMonkey {
       this.target.querySelectorAll(this.options.interactionSelector)
     ) as HTMLElement[];
 
+    if (this.matchesSelector(this.target, this.options.interactionSelector)) {
+      candidates.unshift(this.target);
+    }
+
     return candidates.filter((element) => this.isEligibleElement(element));
   }
 
@@ -86,8 +90,12 @@ export class ChaosMonkey {
       return false;
     }
 
-    if (typeof element.matches === 'function' && this.options.excludeSelector) {
-      if (element.matches(this.options.excludeSelector)) {
+    if (this.options.excludeSelector) {
+      if (this.matchesSelector(element, this.options.excludeSelector)) {
+        return false;
+      }
+
+      if (this.hasMatchingAncestor(element, this.options.excludeSelector)) {
         return false;
       }
     }
@@ -401,6 +409,32 @@ export class ChaosMonkey {
 
   private randomIndex(length: number): number {
     return Math.floor(this.options.random.next() * length);
+  }
+
+  private matchesSelector(element: HTMLElement, selector: string): boolean {
+    if (!selector || typeof element.matches !== 'function') {
+      return false;
+    }
+
+    return element.matches(selector);
+  }
+
+  private hasMatchingAncestor(element: HTMLElement, selector: string): boolean {
+    let current = element.parentElement;
+
+    while (current) {
+      if (this.matchesSelector(current, selector)) {
+        return true;
+      }
+
+      if (current === this.target.parentElement) {
+        break;
+      }
+
+      current = current.parentElement;
+    }
+
+    return false;
   }
 
   private log(message: string) {
