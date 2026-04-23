@@ -42,7 +42,8 @@ jobs:
           fi
 
       - name: Bump version
-        run: npm version ${{ env.BUMP_TYPE }} -m "chore: bump version to %s [skip ci]"
+        run: |
+          npm version ${{ env.BUMP_TYPE }} -m "chore: bump version to %s [skip ci]"
 
       - name: Push version bump
         run: git push origin HEAD:main --follow-tags
