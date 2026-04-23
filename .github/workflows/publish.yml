@@ -30,8 +30,19 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump patch version
-        run: npm version patch -m "chore: bump version to %s [skip ci]"
+      - name: Determine bump type
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          if [[ "$COMMIT_MSG" == *"BREAKING CHANGE"* ]]; then
+            echo "BUMP_TYPE=major" >> $GITHUB_ENV
+          elif [[ "$COMMIT_MSG" == *"feat:"* ]] || [[ "$COMMIT_MSG" == *"feat("* ]]; then
+            echo "BUMP_TYPE=minor" >> $GITHUB_ENV
+          else
+            echo "BUMP_TYPE=patch" >> $GITHUB_ENV
+          fi
+
+      - name: Bump version
+        run: npm version ${{ env.BUMP_TYPE }} -m "chore: bump version to %s [skip ci]"
 
       - name: Push version bump
         run: git push origin main
