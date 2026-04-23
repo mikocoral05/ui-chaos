@@ -43,6 +43,10 @@
     "qa",
     "staging"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mikocoral05/ui-chaos.git"
+  },
   "author": "",
   "license": "ISC",
   "engines": {
